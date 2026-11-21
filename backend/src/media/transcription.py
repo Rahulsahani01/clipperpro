@@ -416,6 +416,17 @@ def _get_transcript_with_assemblyai(
 
 def _get_transcript_with_whisper(video_path: Path, runtime_config) -> str:
     """Get transcript using local Whisper with word-level timestamps."""
+    cached = load_cached_transcript_data(video_path)
+    if cached and (cached.get("utterances") or cached.get("words")):
+        formatted_lines = format_transcript_for_analysis(cached)
+        if formatted_lines:
+            logger.info(
+                "Using cached Whisper transcript for: %s (%d segments)",
+                video_path,
+                len(formatted_lines),
+            )
+            return "\n".join(formatted_lines)
+
     model_name = runtime_config.whisper_model
     logger.info("Starting Whisper transcription with model: %s", model_name)
     whisper_result = transcribe_with_whisper(
@@ -627,15 +638,29 @@ def format_transcript_for_analysis(transcript) -> List[str]:
     # Whisper result dict: treat each segment as an utterance, converting the
     # second-based timings to milliseconds to match the timestamp formatter.
     if isinstance(transcript, dict):
-        formatted_lines = []
-        for segment in transcript.get("segments") or []:
-            start_ms = int(segment.get("start", 0) * 1000)
-            end_ms = int(segment.get("end", 0) * 1000)
-            formatted_lines.append(
-                f"[{format_ms_to_timestamp(start_ms)} - {format_ms_to_timestamp(end_ms)}] "
-                f"{segment.get('text', '').strip()}"
-            )
-        return formatted_lines
+        if "segments" in transcript:
+            formatted_lines = []
+            for segment in transcript.get("segments") or []:
+                start_ms = int(segment.get("start", 0) * 1000)
+                end_ms = int(segment.get("end", 0) * 1000)
+                formatted_lines.append(
+                    f"[{format_ms_to_timestamp(start_ms)} - {format_ms_to_timestamp(end_ms)}] "
+                    f"{segment.get('text', '').strip()}"
+                )
+            return formatted_lines
+        if "utterances" in transcript:
+            formatted_lines = []
+            for utterance in transcript.get("utterances") or []:
+                start_ms = utterance.get("start", 0)
+                end_ms = utterance.get("end", 0)
+                text = utterance.get("text", "").strip()
+                speaker = utterance.get("speaker")
+                speaker_prefix = f"Speaker {speaker}: " if speaker else ""
+                if text:
+                    formatted_lines.append(
+                        f"[{format_ms_to_timestamp(start_ms)} - {format_ms_to_timestamp(end_ms)}] {speaker_prefix}{text}"
+                    )
+            return formatted_lines
 
     utterances = getattr(transcript, "utterances", None) or []
     if utterances:
