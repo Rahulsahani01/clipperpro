@@ -52,7 +52,10 @@ export const auth = betterAuth({
       },
     },
   },
-  trustedOrigins,
+  trustedOrigins: [
+    ...trustedOrigins,
+    "https://*.trycloudflare.com",
+  ],
   emailVerification: {
     sendOnSignUp: false,
     sendOnSignIn: false,

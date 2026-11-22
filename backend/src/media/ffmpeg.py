@@ -18,6 +18,7 @@ from .common import (
     FINAL_VIDEO_CRF,
     FINAL_VIDEO_PRESET,
     INTERMEDIATE_CRF,
+    INTERMEDIATE_PRESET,
     LOUDNORM_FILTER,
     OUTPUT_FPS,
     logger,
@@ -308,17 +309,49 @@ def ffmpeg_escape_filter_path(path: Path) -> str:
 NO_CHAPTERS = ("-map_chapters", "-1")
 
 
+def has_nvenc() -> bool:
+    """Check if ffmpeg has h264_nvenc GPU encoding support and an nvidia device is present."""
+    if os.getenv("DISABLE_NVENC", "0") in {"1", "true", "yes"}:
+        return False
+    if getattr(has_nvenc, "_cached", None) is not None:
+        return has_nvenc._cached
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "nullsrc=s=64x64:d=0.1", "-c:v", "h264_nvenc", "-f", "null", "-"],
+            capture_output=True,
+            timeout=3,
+        )
+        has_nvenc._cached = (proc.returncode == 0)
+    except Exception:
+        has_nvenc._cached = False
+    return has_nvenc._cached
+
+
+def build_intermediate_video_encode_args(crf: int = INTERMEDIATE_CRF) -> List[str]:
+    """Encoding arguments for intermediate video stitches."""
+    if has_nvenc():
+        return ["-c:v", "h264_nvenc", "-preset", "p2", "-cq", str(crf), "-pix_fmt", "yuv420p"]
+    return ["-c:v", "libx264", "-preset", INTERMEDIATE_PRESET, "-crf", str(crf), "-pix_fmt", "yuv420p"]
+
+
 def build_final_video_encode_args(
     crf: int = FINAL_VIDEO_CRF,
     preset: str = FINAL_VIDEO_PRESET,
     fps: int | str = OUTPUT_FPS,
     level: str = "4.1",
 ) -> List[str]:
-    """libx264 args for the quality-determining final pass (CFR, H.264 High).
-
-    Level 4.1 covers 1080p30. Original-format output at 60 fps (or 59.94)
-    needs 4.2 or x264 rejects the stream.
-    """
+    """Video encode args. Automatically uses h264_nvenc GPU encoding if available, falling back to libx264."""
+    if has_nvenc():
+        return [
+            *NO_CHAPTERS,
+            "-c:v", "h264_nvenc",
+            "-preset", "p4",
+            "-cq", str(crf),
+            "-pix_fmt", "yuv420p",
+            "-profile:v", "high",
+            "-level", level,
+            "-r", str(fps),
+        ]
     return [
         *NO_CHAPTERS,
         "-c:v", "libx264",
@@ -571,8 +604,7 @@ def _range_inputs(
                 "ffmpeg", "-y", "-ss", f"{origin:.3f}", "-i", str(video_path),
                 *audio_stream_map_args(audio_stream),
                 "-t", f"{length:.3f}",
-                "-c:v", "libx264", "-preset", "veryfast", "-crf", str(INTERMEDIATE_CRF),
-                "-pix_fmt", "yuv420p",
+                *build_intermediate_video_encode_args(),
             ]
             if audio_stream is not None:
                 command += ["-c:a", "aac", "-b:a", "192k"]
@@ -704,8 +736,7 @@ def render_ranges_crossfade_ffmpeg(
             "-filter_complex", ";".join(parts),
             *map_args,
             *NO_CHAPTERS,
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", str(INTERMEDIATE_CRF),
-            "-pix_fmt", "yuv420p",
+            *build_intermediate_video_encode_args(),
         ]
         if has_audio:
             command += ["-c:a", "aac", "-b:a", "192k"]
@@ -772,14 +803,7 @@ def render_source_ranges_ffmpeg(
             *NO_CHAPTERS,
             "-t",
             f"{end - start:.3f}",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-crf",
-            str(INTERMEDIATE_CRF),
-            "-pix_fmt",
-            "yuv420p",
+            *build_intermediate_video_encode_args(),
             "-c:a",
             "aac",
             "-b:a",
@@ -847,14 +871,7 @@ def render_source_ranges_ffmpeg(
             ";".join(filter_parts),
             *map_args,
             *NO_CHAPTERS,
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-crf",
-            str(INTERMEDIATE_CRF),
-            "-pix_fmt",
-            "yuv420p",
+            *build_intermediate_video_encode_args(),
         ]
         if has_audio:
             command.extend(["-c:a", "aac", "-b:a", "192k"])
@@ -877,14 +894,7 @@ def burn_ass_subtitles_ffmpeg(
         str(input_path),
         "-vf",
         video_filter,
-        "-c:v",
-        "libx264",
-        "-preset",
-        "fast",
-        "-crf",
-        "20",
-        "-pix_fmt",
-        "yuv420p",
+        *build_intermediate_video_encode_args(crf=20),
         "-c:a",
         "aac",
         "-b:a",
