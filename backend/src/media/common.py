@@ -1,5 +1,6 @@
 """Shared media dependencies and rendering constants."""
 
+import os
 from pathlib import Path
 
 from typing import List, Dict, Any, Tuple, Optional

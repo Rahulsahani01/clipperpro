@@ -9,6 +9,7 @@ from typing import Tuple
 from ..clip_source_map import normalize_source_ranges
 from ..config import get_config
 import json
+import os
 import re
 import subprocess
 import tempfile
