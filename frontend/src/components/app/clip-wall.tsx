@@ -120,7 +120,9 @@ export function ClipTile({ clip, taskId, busy, best, editable, partTotal, onOpen
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-black/25" />
           {isPart(clip) ? (
             <span className="absolute left-2 top-2 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-white backdrop-blur">
-              {partTotal ? t("partOf", { n: clip.part_number, total: partTotal }) : t("partLabel", { n: clip.part_number })}
+              {clip.workflow_meta?.part_count
+                ? t("partOf", { n: clip.part_number, total: clip.workflow_meta.part_count })
+                : (partTotal ? t("partOf", { n: clip.part_number, total: partTotal }) : t("partLabel", { n: clip.part_number }))}
             </span>
           ) : best && (
             <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-brand px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-foreground shadow">

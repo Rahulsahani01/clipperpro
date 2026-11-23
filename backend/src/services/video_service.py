@@ -4,7 +4,9 @@ Video service - handles video processing business logic.
 
 import asyncio
 import copy
+import math
 from pathlib import Path
+import re
 from typing import List, Dict, Any, Optional, Callable, Awaitable
 import logging
 import json
@@ -58,6 +60,7 @@ from ..video_utils import (
     keep_ranges_transcript_text,
     seconds_to_mmss,
     get_transcript_text_in_range,
+    word_ends_sentence,
 )
 from ..broll import BRollSession, broll_configured, broll_overlays_for, plan_clip_broll
 from ..clip_source_map import (
@@ -305,6 +308,96 @@ class VideoService:
                 segments, key=lambda segment: int(segment.get("virality_score") or 0), reverse=True
             )
         return segments
+
+    @staticmethod
+    def _split_long_segments(
+        segments: List[Dict[str, Any]],
+        transcript_data: Optional[Dict[str, Any]],
+        clip_length: str = "auto",
+    ) -> List[Dict[str, Any]]:
+        """Split segments that exceed maximum duration into sequential continuous parts.
+
+        If a highlight segment (e.g. 150s story or joke) is longer than 1.25x the target max,
+        instead of truncating the punchline, split it into sequential subclips (Part 1, Part 2, etc.)
+        at natural sentence boundaries.
+        """
+        max_duration = float(clip_duration(clip_length).maximum)
+        split_threshold = max_duration * 1.25  # e.g. 75s when max is 60s
+
+        result: List[Dict[str, Any]] = []
+        for segment in segments:
+            try:
+                start_sec = parse_timestamp_to_seconds(str(segment.get("start_time") or ""))
+                end_sec = parse_timestamp_to_seconds(str(segment.get("end_time") or ""))
+            except Exception:
+                result.append(segment)
+                continue
+
+            duration = end_sec - start_sec
+            if duration <= split_threshold or not transcript_data or not transcript_data.get("words"):
+                result.append(segment)
+                continue
+
+            num_parts = max(2, int(math.ceil(duration / max_duration)))
+            part_target_duration = duration / num_parts
+
+            words = VideoService._segment_words(transcript_data, start_sec, end_sec)
+            if len(words) < num_parts * 3:
+                result.append(segment)
+                continue
+
+            split_points = [start_sec]
+            curr_start = start_sec
+            for k in range(1, num_parts):
+                target_split_time = start_sec + (k * part_target_duration)
+                window_words = [
+                    w for w in words
+                    if (target_split_time - 12.0) <= w["end"] <= (target_split_time + 12.0)
+                    and w["start"] > curr_start + 15.0
+                ]
+
+                best_split = None
+                sentence_ends = [w for w in window_words if word_ends_sentence(w["text"])]
+                if sentence_ends:
+                    best_split = min(sentence_ends, key=lambda w: abs(w["end"] - target_split_time))["end"]
+                elif window_words:
+                    best_split = min(window_words, key=lambda w: abs(w["end"] - target_split_time))["end"]
+                else:
+                    best_split = target_split_time
+
+                split_points.append(best_split)
+                curr_start = best_split
+
+            split_points.append(end_sec)
+
+            base_hook = segment.get("hook_title") or "Highlight"
+            clean_title = re.sub(r"\s*\((?:Part|\d+/\d+).*?\)", "", base_hook, flags=re.IGNORECASE).strip()
+
+            for p in range(1, num_parts + 1):
+                p_start = split_points[p - 1]
+                p_end = split_points[p]
+                if p_end <= p_start:
+                    continue
+
+                sub_payload = copy.deepcopy(segment)
+                sub_payload["start_time"] = seconds_to_mmss(p_start)
+                sub_payload["end_time"] = seconds_to_mmss(p_end)
+                sub_payload["workflow_role"] = "part"
+                sub_payload["part_number"] = p
+                sub_payload["workflow_meta"] = {
+                    "part_number": p,
+                    "part_count": num_parts,
+                    "title": f"{clean_title} (Part {p}/{num_parts})",
+                }
+                sub_payload["hook_title"] = f"{clean_title} (Part {p}/{num_parts})"
+                sub_payload["max_seconds"] = (p_end - p_start) + 10.0
+                sub_payload["opening_reviewed"] = True
+                sub_payload["text"] = VideoService._ground_segment_text(
+                    sub_payload, transcript_data
+                )
+                result.append(sub_payload)
+
+        return result
 
     @staticmethod
     def _drop_static_segments(
@@ -1285,9 +1378,12 @@ class VideoService:
                 segments_json = VideoService._refine_segment_openings(
                     segments_json, transcript_data, clip_length
                 )
+                segments_json = VideoService._split_long_segments(
+                    segments_json, transcript_data, clip_length
+                )
         except Exception:
             # A heuristic must never fail the task; keep the AI's openings.
-            logger.exception("Opening review failed; keeping the selected openings")
+            logger.exception("Opening review/splitting failed; keeping original segments")
 
         clip_limit = max_final_clips_for_duration(file_duration, runtime_config.max_clips)
         if processing_mode == "fast":
@@ -1295,10 +1391,13 @@ class VideoService:
         if max_clips is not None:
             # The creator's count replaces the length-based default, up to the server's limit.
             clip_limit = min(max_clips, max(clip_limit, runtime_config.max_clips))
+        # Ensure multi-part split clips are not truncated by clip_limit
+        if any(s.get("workflow_role") == "part" for s in segments_json):
+            clip_limit = max(clip_limit, len(segments_json))
         # Retain a bounded reserve until picture checks finish, so a rejected
         # slate can be replaced by the next already-ranked candidate.
         if not prepared_segments:
-            segments_json = segments_json[: min(24, max(1, clip_limit) * 2)]
+            segments_json = segments_json[: min(36, max(1, clip_limit) * 2)]
 
         if not segments_json:
             logger.warning(

@@ -67,13 +67,13 @@ VALID_OUTPUT_FORMATS = {"vertical", "vertical_fit", "vertical_pan", "vertical_sp
 
 EMOJI_FONT_NAME = "Noto Color Emoji"
 
-CLIP_END_SENTENCE_EXTENSION_SECONDS = 5.5
+CLIP_END_SENTENCE_EXTENSION_SECONDS = 8.0
 
 # Matches the analysis cap (ai.MAX_ACCEPTED_CLIP_SECONDS). Rewinding a weak
 # opening or finishing a sentence must not turn an accepted clip into a longer one.
 MAX_RENDERED_CLIP_SECONDS = 60.0
 
-CLIP_END_PADDING_SECONDS = 0.35
+CLIP_END_PADDING_SECONDS = 0.6
 
 # The end padding stops this far before the next spoken word, so a finished
 # sentence never picks up the first syllable of the next one.
@@ -114,7 +114,7 @@ PAUSE_LEAD_IN_SECONDS = 0.1
 
 PAUSE_TAIL_SECONDS = 0.25
 
-SENTENCE_END_RE = re.compile(r"""[.!?]["')\]}]*$""")
+SENTENCE_END_RE = re.compile(r"""(?:[.!?。！？…‼⁇⁈⁉؟۔।॥։።፧\u037e]|\.{3})["')\]}\s]*$""")
 
 HOOK_TITLE_SECONDS = 4.0
 

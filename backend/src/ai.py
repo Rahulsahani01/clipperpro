@@ -290,7 +290,7 @@ OUTPUT CONTRACT:
 - Each item in "most_relevant_segments" must include: "start_time", "end_time", "text", "relevance_score", "reasoning", "virality", and "hook_title".
 - Do not use "segment" as an output field. Use "text".
 - "virality" must include: "hook_score", "engagement_score", "value_score", "shareability_score", "total_score", "hook_type", and "virality_reasoning".
-- Every returned segment must be {minimum}-{maximum} seconds long. Prefer {ideal_minimum}-{ideal_maximum} seconds.
+- Every returned segment must be {minimum}-{maximum} seconds long. Prefer {ideal_minimum}-{ideal_maximum} seconds. For exceptional stories, jokes, or narratives requiring build-up, segments up to 180 seconds are permitted; our engine will automatically partition them into continuous Part 1, Part 2, etc. subclips.
 
 CORE OBJECTIVES:
 1. Identify segments that would be compelling on social media platforms
@@ -323,6 +323,8 @@ SEGMENT SELECTION CRITERIA:
 5. ENTERTAINING: Content people would want to share
 6. HIGH SIGNAL: Prefer specific, concrete language over vague discussion
 7. LOW FILLER: Avoid greetings, sponsor reads, repeated setup, throat-clearing, and housekeeping unless they are unusually compelling
+8. PUNCHLINE & PAYOFF COMPLETION: If a segment contains a joke, story, or setup, end_time MUST extend until the punchline, payoff, and immediate reaction are completely finished. Never truncate before the punchline lands.
+9. MULTI-PART EXTENDED MOMENTS: If a great joke, story, or comedy bit takes 90-180 seconds to build up and land, select the full continuous span. It will automatically be split into continuous sequential clips (Part 1, Part 2, Part 3). Never cut off a story before the punchline just to keep it under 60 seconds.
 
 WHAT A GOOD CLIP FEELS LIKE:
 - A viewer should understand and care without the original title, thumbnail, or previous context
@@ -373,6 +375,7 @@ CLIP BOUNDARIES — OPENING AND ENDING:
 - Do not start on a back-reference ("as I said", "the thing we mentioned", "that point", "before we started recording") unless the clip also contains the thing being referenced
 - If the moment only makes sense with the previous sentence's noun, claim, or question, move start_time back to include that sentence
 - end_time is the last word of the sentence that lands the point. Do not stop mid-clause, and do not keep the opening words of the next unrelated thought
+- PUNCHLINE & PAYOFF COMPLETION: If a segment contains a joke, story, or setup, end_time MUST extend until the punchline, payoff, and immediate reaction are completely finished. Never truncate before the punchline lands.
 - The clip's real first sentence is the hook. Do not choose a weak opening because a later line could be replayed in front of it
 - Judge the first spoken seconds on their own, separately from hook_title: a viewer who hears only them must know the subject or claim
 - Skip lead-in banter before the point (calling someone over, "No. No? Ah!", greetings, reactions to something off-screen) and start on the sentence that delivers it
@@ -631,7 +634,7 @@ You receive candidate clips that were picked from different parts of the same vi
 Judge each candidate only on its own transcript text:
 1. Hook: do the first one or two sentences make a scrolling viewer stop? Judge them apart from hook_title; lead-in banter, a lone one-word answer, or an opening conjunction ("But the main reason...") that leans on unseen context is a weak hook.
 2. Standalone: would a viewer understand and care without the rest of the video?
-3. Payoff: does it land a clear point, punchline, lesson, or story beat before it ends?
+3. Payoff: does it land a clear point, punchline, lesson, or story beat before it ends? Downgrade or reject any candidate that cuts off prematurely before the punchline or conclusion.
 4. Specificity and energy: concrete details, numbers, strong opinions, emotion, or humor beat vague talk.
 5. Shareability: would someone send this to a friend or save it?
 
